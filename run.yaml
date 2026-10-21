@@ -1,19 +1,25 @@
-# Fill this in before you submit -- our evaluator runs these commands
-# EXACTLY as written, in this order, from a fresh checkout of your fork.
-# Keep every command non-interactive (no prompts) and idempotent.
+# Commands are non-interactive and idempotent. No GPU, no API keys required.
+# CLAUDE_KEY + the `claude` CLI are optional: without them triage falls back to rules.
 
 setup_commands:
   - "pip install -r requirements.txt"
-  # - add every other setup step here, in order (env vars, downloads, etc.)
 
 run_commands:
   - "python src/main.py --help"
-  # - the real command(s) that actually run your solution
+  # 1) localhost: bundled website with 14 planted faults (no network needed, ~3s)
+  - "python src/main.py demo --exit-zero"
+  # 2) the real target (needs internet, ~15s)
+  - "python src/main.py check --url https://aintropy.ai/ --exit-zero"
 
-test_commands: []
-  # optional -- commands that run your own tests/checks, if you have any
+test_commands:
+  - "python -m pytest -q"
+  # detection precision/recall, clean-site false positives, guardrails, speed/cost
+  - "python src/evals/run_eval.py"
 
-notes: ""
-  # anything we should know before running this (e.g. "needs a GPU",
-  # "takes about 10 minutes", "expects a sample dataset already present
-  # under data/, see docs/ for where to get it")
+notes: >
+  Reports are written to reports/<site>/latest.md and latest.json.
+  `--exit-zero` is only there so the demo commands don't look like failures; without it
+  the exit code is 0 healthy / 1 degraded / 2 unhealthy, for CI. If CLAUDE_KEY is set and the
+  `claude` CLI is installed (npm i -g @anthropic-ai/claude-code), the triage step uses
+  claude -p (haiku); `python src/evals/run_eval.py --llm` also evaluates that layer.
+  See docs/README.md for the design, evals and guardrails.

@@ -1,0 +1,19 @@
+# Which sites to monitor and how. Secrets (webhook URL/secret, CLAUDE_KEY) come from env vars only.
+defaults:
+  max_pages: 40
+  concurrency: 8
+  time_budget_s: 90
+  notify: on_change          # always | on_change | never
+  llm:
+    enabled: true
+    model: haiku             # triage needs reasoning over ~3k tokens, not a frontier model
+    max_findings: 60
+
+sites:
+  - name: aintropy
+    url: https://aintropy.ai/
+    plugins_dir: examples/plugins       # org-specific rules live outside the core
+  - name: local-dev
+    url: http://127.0.0.1:8765/         # start with: python src/fixture_site/server.py
+    check_external: false
+    enabled: false                      # only when the dev server is running

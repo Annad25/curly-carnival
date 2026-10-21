@@ -1,13 +1,37 @@
 # Problem 2.4: Website Health Checker
 
-## Submission instructions
+A fast, cheap agent that tests whether a website is healthy: availability, links and assets, TLS/DNS, security headers, content errors, SEO and performance. It uses Claude (`claude -p`) only to reason over the findings: grouping them into root causes and suggesting fixes.
 
-1. Install the **AIntropy Grader Bot** GitHub App (https://github.com/apps/aintropy-grader-bot) and grant it access to your private repo, if you haven't already — we can't evaluate your submission without this.
-2. Put your code under `src/`.
-3. Put your write-up under `docs/` — markdown, slides, a notebook, or another format of your choosing are all fine, as long as it's committed in this repo.
-4. Fill in `run.yaml` with the **exact** commands needed to set up and run your code. We run these commands exactly as written to evaluate your submission — this is the one part of the submission we read literally, not loosely: if `run.yaml` doesn't work, we can't see your code run.
-5. Push to your own repo's default branch any time during your test's time limit. No pull request is needed or expected.
+**Write-up (design, evals, guardrails, results):** [docs/README.md](docs/README.md)
 
-Once you start the test you have until your test's time limit to complete the assignment — see your invitation email for the exact duration. We ignore any commits pushed to your repo after that.
+## Quick start
 
-Questions? careers@aintropy.ai
+```bash
+pip install -r requirements.txt
+python src/main.py demo                                  # localhost site with 14 planted faults
+python src/main.py check --url https://aintropy.ai/      # real site
+python src/main.py check --config sites.yaml             # every site in the config
+python src/evals/run_eval.py                             # precision / recall / guardrails / cost
+python -m pytest -q
+```
+
+Optional: `export CLAUDE_KEY=...` and `npm i -g @anthropic-ai/claude-code` turn on LLM triage. Without them, triage is rule-based.
+
+## Layout
+
+```
+src/main.py                 CLI (check | demo | serve)
+src/healthchecker/
+  crawler.py                planner/crawler agent (robots, sitemap, budgeted BFS)
+  fetcher.py                read-only async HTTP with budgets + retry
+  checks/                   checker agents (one file each) + plugin loader
+  triage.py                 reasoning layer: claude -p -> cache -> rules fallback
+  guardrails.py             prompt-injection / secret sanitising, output validation
+  report.py, hooks.py       verdict, diff, JSON/MD reports, webhook + command hooks
+  api.py                    authenticated POST /check API with a host allowlist
+src/fixture_site/           localhost test website with ground-truth faults
+src/evals/run_eval.py       eval harness
+examples/plugins/           example org-specific check
+sites.yaml                  targets + settings
+Dockerfile, .github/workflows/health-check.yml   deployment
+```
