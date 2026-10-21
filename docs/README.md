@@ -2,6 +2,8 @@
 
 **Goal:** point it at *any* website and get an accurate health verdict, quickly and cheaply, without false alarms.
 
+The full story of how it was built, including what broke along the way, is in [how_i_built_it.md](how_i_built_it.md).
+
 ## 1. Workflow
 
 ```
