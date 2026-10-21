@@ -22,4 +22,6 @@ notes: >
   the exit code is 0 healthy / 1 degraded / 2 unhealthy, for CI. If CLAUDE_KEY is set and the
   `claude` CLI is installed (npm i -g @anthropic-ai/claude-code), the triage step uses
   claude -p (haiku); `python src/evals/run_eval.py --llm` also evaluates that layer.
+  Any site works as input: `python src/main.py check --url <site> --exit-zero` (scheme optional).
+  Optional real-world eval (needs internet, ~5 min, 24 live sites): python src/evals/realworld.py
   See docs/README.md for the design, evals and guardrails.
