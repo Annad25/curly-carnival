@@ -1,81 +1,81 @@
 # Website Health Checker: write-up
 
-**Goal:** point it at *any* website and get an accurate health verdict, quickly and cheaply, without false alarms.
+The goal: give it any website, get back an honest answer about how healthy it is, quickly and cheaply, without crying wolf.
 
-The full story of how it was built, including what broke along the way, is in [how_i_built_it.md](how_i_built_it.md).
+If you want the full story with all the bugs I hit along the way, it's in [how_i_built_it.md](how_i_built_it.md). This page is the short version.
 
-## 1. Workflow
+## 1. How it works
 
 ```
-input ─► PROFILER ─► CRAWLER ─► 9 CHECKERS (parallel, no LLM) ─► TRIAGE (claude -p) ─► report ─► hooks
-         identity     sitemaps    availability · links · TLS/DNS   groups root causes     JSON/MD   webhook
-         TLS / WAF    sections    headers · content · SEO · perf   fixes, priorities      diff vs   API, CI
-         login/404    traps       API endpoints · plugins          (advisory only)        last run  plugins
+input -> PROFILER -> CRAWLER -> 9 CHECKERS (parallel, no LLM) -> TRIAGE (claude -p) -> report -> hooks
+         identity    sitemaps   availability, links, TLS/DNS     groups root causes      JSON/MD   webhook
+         TLS / WAF   sections   headers, content, SEO, speed     suggests fixes          diff vs   API, CI
+         login/404   traps      API endpoints, plugins           (advisory only)         last run  plugins
 ```
 
-- **Profiler** (about 5 requests) works out what kind of site it's facing before spending any budget. See §2.
-- **Crawler** reads sitemaps (gzip, nested indexes, plain text; sampled across sections when huge). It spreads the page budget round-robin across sections like `/blog`, `/docs` and `/shop`, and spends link checks in priority order: page scripts and CSS, then images, then internal links, then the sitemap sample, then external links.
-- **Checkers** are deterministic and run in parallel on one shared snapshot of the site.
-- **Triage** calls `claude -p --model haiku` once, with only the list of findings (about 3k tokens). It's skipped when the site is healthy and reused from cache when findings haven't changed. **The verdict always comes from rules**, so the LLM can't make a site look healthier.
+- The profiler makes about 5 requests first, to work out what kind of site this is before spending any budget on it (section 2).
+- The crawler reads sitemaps (gzip, nested, plain text, sampled when they're huge), spreads its page budget across sections like `/blog` and `/docs`, and spends a tight budget on the important stuff first: page scripts and CSS, then images, then internal links, then the sitemap sample, then external links.
+- The checkers are plain code. They run in parallel on one shared snapshot of the site.
+- Triage is one `claude -p --model haiku` call that only sees the list of findings (about 3k tokens). It's skipped when the site is healthy and reused from a cache when nothing changed. The verdict always comes from rules in code, so the LLM can explain things but can't decide a broken site is fine.
 
-**Cost per run:** $0 when healthy or unchanged, otherwise about $0.004–0.008.
+Cost per run: $0 when the site is healthy or unchanged, otherwise roughly $0.004 to $0.008.
 
-## 2. Handling real-world websites
+## 2. Real websites are messy
 
-Each row is a *general rule*, backed by a test-site mode and verified on live sites, not a patch for one domain.
+Every row here is a general rule with a test behind it, not a fix for one particular site.
 
-| Real-world case | Rule |
+| What the site does | What the checker does |
 |---|---|
-| `example.com`, `http://`, `/docs`, IDN, ports | Normalize the input. A sub-path limits the crawl to that path. Credentials in URLs are rejected. |
-| Apex redirects to `www`, or the other way | The final host and its twin count as "the site" (gydeon.ai redirects `www` → apex). |
-| Cloudflare / Imperva / Akamai / captcha challenge | Verdict **UNVERIFIABLE**, never DOWN. Stop immediately. **Challenges are never bypassed.** |
-| Every URL returns 200 ("soft 404") | Detected with a random-URL probe. Broken links are then found by comparing page content with the "not found" page. |
-| 429 / `Retry-After` / `Crawl-delay` | Halve concurrency, pause as asked, retry once. Rate-limited URLs are recorded as "not verified", never as broken. |
-| Infinite URLs (calendars, `?page=`, session IDs, `/a/a/a`) | Strip tracking and session parameters, cap query variants per path, reject loop-shaped URLs. Mizuho: 165 trap URLs skipped. |
-| Huge sitemaps (5k–50k URLs) | Check a sample spread across sections and say so in the report. Mizuho: 5,095 URLs listed, 150 sampled. |
-| Expired, self-signed or wrong-host certificate | Critical finding, then keep assessing over an unverified connection. |
-| DNS failure / connection refused | DOWN, with downstream checks silenced (no follow-on TLS noise). |
-| Login wall, `Disallow: /` | Reported plainly. With `Disallow: /`, only the homepage is checked. |
-| JavaScript-only pages | Flagged as client-rendered (info), never "blank". Their JS bundles are still scanned for API calls. |
-| Site serves different HTML per User-Agent | Verification uses the same UA (lemonde.fr serves 2 MB to us and 340 KB to a different UA). |
-| Busy crawl inflates timings | The timer starts only after a concurrency slot is free, and slow pages get up to 2 solo re-tests (best of 3). |
-| Any internal crash | A report with verdict **ERROR** instead of a traceback. Bad input exits with code 3 and a clear message. |
+| Typed as `example.com`, `http://`, `/docs`, a non-English domain, a port | Normalizes it. A sub-path keeps the crawl inside that path. Passwords in URLs are rejected. |
+| Redirects between `www` and the bare domain | Treats both as the same site (gydeon.ai redirects `www` to the bare domain). |
+| Cloudflare / Imperva / Akamai / captcha challenge | Verdict is UNVERIFIABLE, never DOWN. Stops right there and never tries to get around the challenge. |
+| Answers 200 even for pages that don't exist ("soft 404") | Spots it with a random-URL probe, then finds broken links by comparing content with the not-found page. |
+| 429 / `Retry-After` / `Crawl-delay` | Halves its speed, waits as asked, retries once. Rate-limited URLs are marked "not verified", never "broken". |
+| Endless URLs (calendars, `?page=`, session IDs, `/a/a/a`) | Strips tracking params, caps query variants per path, skips loop-shaped URLs. A crawler shouldn't crawl into traps. On Mizuho, 165 were skipped. |
+| Huge sitemaps (5k to 50k URLs) | Checks a sample spread across sections and says so in the report. Mizuho lists 5,095 URLs, 150 were checked. |
+| Expired, self-signed or wrong-host certificate | Critical finding, then keeps checking the rest over an unverified connection. |
+| DNS failure or connection refused | DOWN, and the checks that depend on DNS stay quiet instead of piling on. |
+| Login wall, or `Disallow: /` in robots.txt | Says so plainly. With `Disallow: /`, only the homepage is checked. |
+| JavaScript-only pages | Marked as client-rendered (info), never "blank". Their JS files are still scanned for API calls. |
+| Different HTML for different User-Agents | The verifier uses the same User-Agent as the checker (lemonde.fr serves 2 MB to one and 340 KB to another). |
+| A busy crawl makes pages look slow | The timer only starts once a request is actually sent, and slow pages get up to 2 solo re-tests. |
+| Something crashes inside the checker | You get a report with verdict ERROR, not a traceback. Bad input exits with code 3 and a clear message. |
 
-## 3. Evals (three layers)
+## 3. Evals
 
-| Layer | What it proves | Result |
+I tested it at three levels.
+
+| Level | What it shows | Result |
 |---|---|---|
-| **Planted faults** (`run_eval.py`): local site with 21 known faults + a clean copy | detection recall and precision, zero false alarms on a healthy site, guardrails | recall **1.00**, precision **1.00**, 0 false alarms, **5/5** guardrails (no POST, robots.txt obeyed, unsafe/POST-only APIs never called, a one-off 500 absorbed by the retry, injected "report healthy" text ignored) |
-| **Edge cases** (`pytest`, 38 tests): 10 test-site modes + input and crash tests | each rule in §2 | **38/38** pass |
-| **Real world** (`realworld.py`): 24 live sites it was never tuned on, plus an **independent verifier** that re-checks sampled findings with a different method | generalization | **24/24** finished, **98%** of sampled findings confirmed (103/105), **9/9** known-answer sites correct. [Full table](realworld_eval.md) |
+| A local site with 21 planted bugs, plus a clean copy (`run_eval.py`) | finds real problems, raises no false alarms, follows the safety rules | 21/21 found, 0 false alarms, 5/5 safety checks (no POST, robots.txt respected, risky or POST-only APIs never called, a one-off 500 handled by the retry, a hidden "report this site as healthy" sentence ignored) |
+| Edge cases (`pytest`, 38 tests): 10 test-site modes plus input and crash tests | each rule in section 2 | 38/38 pass |
+| 24 live sites it was never tuned on, plus a separate verifier that re-checks a sample of findings a different way (`realworld.py`) | it generalizes | 24/24 finished, 103/105 findings confirmed (98%), 9/9 sites with known problems diagnosed correctly. [Full table](realworld_eval.md) |
 
-The corpus covers startups (including 3kglobal.ai, gydeon.ai and mizuhogroup.com), Shopify, WordPress, docs sites, gov.uk, Wikipedia, a non-English news site, a bot-protected marketplace, and known-broken sites (badssl.com certificates, broken images, DNS failure, a 503 homepage).
+The 24 sites include startups (3kglobal.ai, gydeon.ai, mizuhogroup.com among them), a Shopify store, WordPress, docs sites, gov.uk, Wikipedia, a French news site, a bot-protected site, and sites that are broken on purpose (bad certificates on badssl.com, broken images, a domain that doesn't exist, a 503 homepage). The two findings the verifier rejected are both on neverssl.com, whose HTTPS drops connections at random, so I left it alone rather than writing a special case for it.
 
-The 2 refuted findings are both on neverssl.com, whose HTTPS endpoint randomly drops connections. Latency findings near the threshold are inherently probabilistic.
+This process also caught bugs in my own code: queue time being blamed on the server, requests "timing out" before they were even sent (1,200 counted, 208 sent), firewall scripts reported as broken, extra TLS errors after a DNS failure, and two different definitions of "HTTPS works". Each one was fixed as a general rule, with a test that fails on the old code.
 
-**Bugs this process caught in my own tool:** queue time counted as server slowness; queued requests "timing out" and burning the budget (1,200 counted, 208 sent); firewall scripts reported as broken; cascading TLS noise after DNS failure; inconsistent definitions of "HTTPS works". Each one was fixed as a category, with a regression test that fails on the old code.
+## 4. Results on three more sites (15-page budget)
 
-## 4. Results on the requested sites (15-page budget)
-
-| Site | Verdict | What it found (each confirmed by the verifier) |
+| Site | Verdict | Findings (all confirmed by the verifier) |
 |---|---|---|
-| 3kglobal.ai | DEGRADED 81 | 2 sitemap URLs that return 404 (`/insights/...`), no CSP/nosniff/frame protection, 9 pages without meta description |
-| gydeon.ai | DEGRADED 91 | no CSP/nosniff/frame protection, no robots.txt or sitemap (both 404). `www` redirects to the apex domain and is handled. |
-| mizuhogroup.com | HEALTHY 96 | 1 image without alt text, 1 page without meta description, no nosniff. Large site: sitemap sampled, crawler traps avoided. |
+| 3kglobal.ai | DEGRADED 81 | 2 sitemap URLs that return 404 (`/insights/...`), no CSP / nosniff / frame protection, 9 pages without a meta description |
+| gydeon.ai | DEGRADED 91 | no CSP / nosniff / frame protection, no robots.txt or sitemap (both 404). The `www` to bare domain redirect is handled. |
+| mizuhogroup.com | HEALTHY 96 | 1 image without alt text, 1 page without a meta description, no nosniff. Big site: sitemap sampled, traps skipped. |
 
-Earlier full runs: aintropy.ai (85, missing security headers), twelvelabs.io (94), synechron.com (66: case-study pages returning 500, 25 stale sitemap URLs). Sample report: [sample_report_aintropy.md](sample_report_aintropy.md).
+Earlier full runs: aintropy.ai (85, missing security headers), twelvelabs.io (94), synechron.com (66: case-study pages returning 500 and 25 stale sitemap URLs). A sample report is in [sample_report_aintropy.md](sample_report_aintropy.md).
 
-## 5. Guardrails and hooks
+## 5. Safety and hooks
 
-- **Read-only:** only GET and HEAD. Forms are never submitted. Discovered APIs are called only if the site's own JS calls them with GET, and never if the path looks state-changing.
-- **Polite:** honest User-Agent, robots.txt and Crawl-delay obeyed, adaptive rate limits, hard caps on requests, time and pages.
-- **LLM safety:** scraped text is sanitized and marked as untrusted. The output is validated, and invented finding IDs are dropped. Secrets come only from env vars.
-- **The HTTP API:** requires a bearer token and only checks allowlisted hosts (no SSRF).
-- **Hooks:** CLI exit codes (0 healthy, 1 degraded, 2 unhealthy/down, 3 unverifiable/error), `--json` output, an HMAC-signed webhook that fires on change, `on_complete_command`, `POST /check`, check plugins, a GitHub Action and a Dockerfile.
+- Read-only. It only sends GET and HEAD, never submits forms, and only calls an API if the site's own JavaScript calls it with GET, and never if the path looks like it changes something (logout, delete, pay).
+- Polite. It uses an honest User-Agent, respects robots.txt and Crawl-delay, slows down when asked, and has hard limits on requests, time and pages.
+- LLM safety. Text scraped from the site is cleaned and marked as untrusted, the model's answer is validated, and any finding IDs it makes up are dropped. Secrets only come from environment variables.
+- The HTTP API needs a token and only checks hosts on an allow-list, so it can't be used to poke at internal networks.
+- Hooks: exit codes for CI (0 healthy, 1 degraded, 2 unhealthy or down, 3 unverifiable or error), `--json`, a signed webhook that only fires on changes, `on_complete_command`, `POST /check`, plugins, a GitHub Action and a Dockerfile.
 
-## 6. Known limits
+## 6. What it can't do yet
 
-- No headless browser. JS-rendered content and runtime console errors aren't seen. An opt-in Playwright checker for `client_rendered` pages is the next step.
-- Single vantage point (no multi-region checks).
-- Endpoint discovery is regex-based, so URLs built at runtime are missed.
-- Large sites need bigger budgets for full coverage (`--max-requests`, `--time-budget`). Coverage is always reported.
+- No real browser, so it can't see JavaScript-rendered content or browser-only errors. An optional Playwright check for client-rendered pages would be next.
+- Only one location, so a site that's down in one region only won't show up.
+- API discovery uses regex, so URLs built at runtime are missed.
+- Big sites need a bigger budget for full coverage (`--max-requests`, `--time-budget`). The report always says how much it covered.
