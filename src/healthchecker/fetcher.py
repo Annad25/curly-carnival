@@ -1,4 +1,4 @@
-"""Async HTTP fetcher with guardrails and politeness baked in.
+"""Async HTTP fetcher with guardrails and proper handling
 
 * read-only: only GET / HEAD are possible, forms are never submitted
 * global request + wall-clock budget
