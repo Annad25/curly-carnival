@@ -1,18 +1,30 @@
 """Discoverability: robots.txt, sitemap integrity, titles, descriptions, indexing."""
 from ..models import Finding
-from . import check
+from . import assessable, check
 
 
 @check("seo")
 async def seo(site, cfg):
     out = []
+    if not assessable(site):
+        return out
     root = site.origin + "/"
-    if site.robots_status != 200:
+    prof = getattr(site, "profile", None)
+    if prof and prof.robots_invalid:
+        out.append(Finding("seo", "invalid_robots", "low", site.origin + "/robots.txt",
+                           "robots.txt returns an HTML page, not robots rules (catch-all route?)"))
+    elif site.robots_status != 200:
         out.append(Finding("seo", "missing_robots", "low", site.origin + "/robots.txt",
                            f"robots.txt not available (HTTP {site.robots_status})"))
-    if site.sitemap_status != 200:
+    if site.sitemap_status != 200 and site.sitemap_invalid:
+        out.append(Finding("seo", "invalid_sitemap", "low", site.sitemap_invalid[0],
+                           "Sitemap URL returns something that isn't a sitemap (HTML page?)"))
+    elif site.sitemap_status != 200:
         out.append(Finding("seo", "missing_sitemap", "low", root + "sitemap.xml",
                            f"sitemap.xml not available (HTTP {site.sitemap_status})"))
+    if getattr(site, "sitemap_total", 0) > len(site.sitemap_urls):
+        out.append(Finding("seo", "sitemap_sampled", "info", root + "sitemap.xml",
+                           f"Sitemap lists {site.sitemap_total} URLs - checked a stratified sample of {len(site.sitemap_urls)}"))
     for url in site.sitemap_urls:
         r = site.resources.get(url)
         if r and not r.skipped and (r.error or (r.status or 0) >= 400):

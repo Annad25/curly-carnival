@@ -1,10 +1,12 @@
 """Server-side speed and page weight (no browser needed)."""
 from ..models import Finding
-from . import check
+from . import assessable, check
 
 
 @check("performance")
 async def performance(site, cfg):
+    if not assessable(site):
+        return []
     out = []
     for p in site.pages:
         r = site.resources.get(p.url)

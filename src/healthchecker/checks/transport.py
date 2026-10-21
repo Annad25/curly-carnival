@@ -44,13 +44,36 @@ def _cert_expiry(host: str, port: int) -> datetime:
     return datetime.fromtimestamp(ssl.cert_time_to_seconds(cert["notAfter"]), tz=timezone.utc)
 
 
+async def https_works(host: str, cfg) -> bool:
+    """One retry before concluding 'no HTTPS' - same transient-failure rule as every other check
+    (neverssl.com drops the first HTTPS connection and answers the second)."""
+    async with httpx.AsyncClient(timeout=cfg.timeout_s, headers={"User-Agent": cfg.user_agent}) as c:
+        for attempt in range(2):
+            try:
+                await c.head(f"https://{host}/")
+                return True
+            except httpx.HTTPError:
+                if attempt == 0:
+                    await asyncio.sleep(1)
+    return False
+
+
 @check("tls")
 async def tls(site, cfg):
     u = urlparse(site.start_url)
+    prof = getattr(site, "profile", None)
+    if prof and prof.unreachable:
+        return []                                   # cascade: no host -> no TLS to judge (site_down says it all)
     if _is_local(u.netloc):
         return []                                   # local dev server: TLS not expected
     if u.scheme != "https":
-        return [Finding("tls", "no_https", "high", site.start_url, "Site is served over plain HTTP")]
+        # the input said http:// - does https exist but simply not get used, or not exist at all?
+        # "works" = an HTTPS request gets an HTTP response (a handshake alone isn't enough: some
+        # servers complete TLS and then reset the connection)
+        if await https_works(u.hostname, cfg):
+            return [Finding("tls", "no_https_redirect", "medium", site.start_url,
+                            "HTTPS works but the site is served over plain HTTP (no redirect to https)")]
+        return [Finding("tls", "no_https", "high", site.start_url, "Site has no working HTTPS")]
     out = []
     try:
         expiry = await asyncio.to_thread(_cert_expiry, u.hostname, u.port or 443)
@@ -62,7 +85,17 @@ async def tls(site, cfg):
         elif days < cfg.cert_warn_days:
             out.append(Finding("tls", "cert_expiring", "medium", site.start_url, f"TLS certificate expires in {days} days"))
     except ssl.SSLCertVerificationError as e:
-        out.append(Finding("tls", "cert_invalid", "critical", site.start_url, "TLS certificate failed verification", str(e)[:200]))
+        msg = str(e)
+        if "expired" in msg:
+            out.append(Finding("tls", "cert_expired", "critical", site.start_url, "TLS certificate has expired", msg[:200]))
+        elif "self-signed" in msg or "self signed" in msg:
+            out.append(Finding("tls", "cert_self_signed", "critical", site.start_url,
+                               "TLS certificate is self-signed (browsers show a warning)", msg[:200]))
+        elif "hostname" in msg or "match" in msg:
+            out.append(Finding("tls", "cert_hostname_mismatch", "critical", site.start_url,
+                               "TLS certificate is for a different hostname", msg[:200]))
+        else:
+            out.append(Finding("tls", "cert_invalid", "critical", site.start_url, "TLS certificate failed verification", msg[:200]))
     except OSError as e:
         out.append(Finding("tls", "tls_error", "high", site.start_url, "TLS handshake failed", str(e)[:200]))
 

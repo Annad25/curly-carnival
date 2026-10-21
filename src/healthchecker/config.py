@@ -30,6 +30,10 @@ class Config:
     check_external: bool = True
     max_external: int = 60
     max_bundles: int = 10          # JS bundles scanned for API endpoints
+    max_query_variants: int = 3    # per path: ?page=1,2,3 then stop (crawler-trap protection)
+    max_section_share: float = 0.5 # no single section (/blog) may take more than half the page budget
+    max_sitemap_files: int = 10    # sitemap index fan-out cap
+    max_sitemap_checks: int = 150  # URLs sampled (stratified by section) from huge sitemaps
     # CDN / WAF bot-challenge endpoints (Cloudflare, Imperva/Incapsula, Akamai) answer non-browsers
     # with 4xx on purpose - checking them only produces false "broken asset" alarms.
     ignore_patterns: list = field(default_factory=lambda: ["/cdn-cgi/", "/_Incapsula_Resource", "/akam/"])

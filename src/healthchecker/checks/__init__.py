@@ -18,6 +18,13 @@ from ..models import Finding
 REGISTRY: dict[str, callable] = {}
 
 
+def assessable(site) -> bool:
+    """False when the site is unreachable or challenged by a WAF: page-level checks would only
+    produce noise about the error/challenge page, not facts about the site."""
+    prof = getattr(site, "profile", None)
+    return not (prof and (prof.unreachable or prof.blocked))
+
+
 def check(name: str):
     def deco(fn):
         REGISTRY[name] = fn

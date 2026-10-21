@@ -11,7 +11,9 @@ pip install -r requirements.txt
 python src/main.py demo                                  # localhost site with 21 planted faults
 python src/main.py check --url https://aintropy.ai/      # real site
 python src/main.py check --config sites.yaml             # every site in the config
+python src/main.py check --url example.com               # any input form works (scheme optional)
 python src/evals/run_eval.py                             # precision / recall / guardrails / cost
+python src/evals/realworld.py                            # 24 live sites + independent verifier (~5 min)
 python -m pytest -q
 ```
 
@@ -22,16 +24,18 @@ Optional: `export CLAUDE_KEY=...` and `npm i -g @anthropic-ai/claude-code` turn 
 ```
 src/main.py                 CLI (check | demo | serve)
 src/healthchecker/
-  crawler.py                planner/crawler agent (robots, sitemap, budgeted BFS)
+  profile.py                site profiler: identity, TLS, WAF/login/soft-404 detection, robots rules
+  crawler.py                planner/crawler agent (sitemaps, section-aware crawl, trap protection, tiers)
   endpoints.py              API endpoint discovery from JS bundles + safety rules
-  fetcher.py                read-only async HTTP with budgets + retry
+  fetcher.py                read-only async HTTP: budgets, adaptive concurrency, Retry-After, Crawl-delay
   checks/                   checker agents (one file each) + plugin loader
   triage.py                 reasoning layer: claude -p -> cache -> rules fallback
   guardrails.py             prompt-injection / secret sanitising, output validation
   report.py, hooks.py       verdict, diff, JSON/MD reports, webhook + command hooks
   api.py                    authenticated POST /check API with a host allowlist
-src/fixture_site/           localhost test website with ground-truth faults
-src/evals/run_eval.py       eval harness
+src/fixture_site/           localhost test websites: 21 planted faults + 10 edge-case modes
+src/evals/run_eval.py       eval harness (planted faults, guardrails, cost)
+src/evals/realworld.py      generalisation eval on live sites with an independent verifier
 examples/plugins/           example org-specific check
 sites.yaml                  targets + settings
 Dockerfile, .github/workflows/health-check.yml   deployment

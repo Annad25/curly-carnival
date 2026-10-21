@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from ..guardrails import INJECTION_RE
 from ..models import Finding
-from . import check
+from . import assessable, check
 
 SOFT_ERROR_RE = re.compile(
     r"(Traceback \(most recent call last\)|Internal Server Error|Fatal error:|Uncaught (Type|Reference)Error"
@@ -20,6 +20,8 @@ def _snip(text: str, m: re.Match) -> str:
 
 @check("content")
 async def content(site, cfg):
+    if not assessable(site):
+        return []
     out = []
     for p in site.pages:
         if not site.is_internal(p.final_url):

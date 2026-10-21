@@ -3,11 +3,13 @@ import re
 from urllib.parse import urlparse
 
 from ..models import Finding
-from . import check
+from . import assessable, check
 
 
 @check("security_headers")
 async def security_headers(site, cfg):
+    if not assessable(site):
+        return []
     home = site.home
     if not home or not home.ok:
         return []

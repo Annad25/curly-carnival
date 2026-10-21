@@ -4,11 +4,13 @@ A page can render fine while the API behind it is dead - users then see a broken
 app and every other check says "healthy". This closes that gap without a browser.
 """
 from ..models import Finding
-from . import check
+from . import assessable, check
 
 
 @check("endpoints")
 async def endpoints(site, cfg):
+    if not assessable(site):
+        return []
     out = []
     for e in site.endpoints:
         if not e.probe:

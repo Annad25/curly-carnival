@@ -45,9 +45,14 @@ def cmd_check(a) -> int:
         print("give --url or a --config with sites", file=sys.stderr)
         return 3
     worst = 0
-    for url in targets:
+    for url in targets:                       # one bad site must not stop the others
         cfg = load_config(a.config, url, _overrides(a))
-        report = asyncio.run(run_health_check(url, cfg))
+        try:
+            report = asyncio.run(run_health_check(url, cfg))
+        except ValueError as e:
+            print(f"invalid target {url!r}: {e}", file=sys.stderr)
+            worst = max(worst, 3)
+            continue
         _print(report, a.json)
         worst = max(worst, EXIT_CODES[report["verdict"]])
     return 0 if a.exit_zero else worst
@@ -77,6 +82,11 @@ def cmd_serve(a) -> int:
 
 
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):   # Windows consoles default to cp1252: don't print mojibake
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(prog="healthcheck", description="Fast, cheap website health checker agent")
     sub = ap.add_subparsers(dest="cmd", required=True)
 

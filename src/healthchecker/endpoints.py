@@ -75,15 +75,16 @@ def extract_from_js(js: str, bundle_url: str, page_url: str) -> list[Endpoint]:
     return list(found.values())
 
 
-def plan(endpoints: list[Endpoint], host: str) -> list[Endpoint]:
+def plan(endpoints: list[Endpoint], hosts) -> list[Endpoint]:
     """Apply the safety rules and decide which endpoints get a GET."""
+    hosts = {hosts} if isinstance(hosts, str) else set(hosts)
     out, seen = [], set()
     for e in endpoints:
         key = (e.method, e.url)
         if key in seen:
             continue
         seen.add(key)
-        if urlparse(e.url).netloc != host:
+        if urlparse(e.url).netloc not in hosts:
             e.reason = "third-party host"
         elif UNSAFE_RE.search(urlparse(e.url).path):
             e.reason = "path looks state-changing"

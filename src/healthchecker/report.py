@@ -11,12 +11,17 @@ from pathlib import Path
 from .models import SEV_RANK, SEVERITIES
 
 VERDICTS = {"critical": "DOWN", "high": "UNHEALTHY", "medium": "DEGRADED"}
-EXIT_CODES = {"HEALTHY": 0, "DEGRADED": 1, "UNHEALTHY": 2, "DOWN": 2}
+EXIT_CODES = {"HEALTHY": 0, "DEGRADED": 1, "UNHEALTHY": 2, "DOWN": 2, "UNVERIFIABLE": 3, "ERROR": 3}
 WEIGHTS = {"info": 0, "low": 1, "medium": 4, "high": 10, "critical": 40}
 
 
 def verdict_of(findings) -> str:
     """Deterministic. The LLM never decides this."""
+    codes = {f.code for f in findings}
+    if "tool_error" in codes:
+        return "ERROR"
+    if "blocked_by_bot_protection" in codes:
+        return "UNVERIFIABLE"            # up, but we refuse to guess (and never bypass challenges)
     worst = max((SEV_RANK[f.severity] for f in findings), default=0)
     return VERDICTS.get(SEVERITIES[worst], "HEALTHY")
 
@@ -116,6 +121,9 @@ def to_markdown(r: dict) -> str:
             result = (str(e["status"]) if e["status"] else e["error"] or "") if e["probe"] else f"not called ({e['reason']})"
             lines.append(f"| {e['method']} | {e['url']} | {e['found_in'].split(':', 1)[0]} | {result} |")
         lines.append("")
+    prof = r.get("profile") or {}
+    if prof.get("notes"):
+        lines += ["## How this site was handled", ""] + [f"- {n}" for n in prof["notes"]] + [""]
     lines += ["## All findings", "", "| severity | code | url | detail |", "|---|---|---|---|"]
     for f in r["findings"]:
         detail = (f["message"] + (f" - {f['evidence']}" if f["evidence"] else "")).replace("|", "\\|").replace("\n", " ")

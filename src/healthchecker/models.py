@@ -42,12 +42,15 @@ class Resource:
     error: str | None = None
     attempts: int = 1
     skipped: bool = False                       # not fetched (budget / robots)
+    rate_limited: bool = False                  # server answered 429 / Retry-After even after backing off
+    tls_error: str | None = None                # certificate problem (site may still be assessed insecurely)
+    soft404: bool = False                       # 200 OK but it's the site's "not found" page
     kinds: set = field(default_factory=set)     # page, a, img, script, css, icon, sitemap
     sources: set = field(default_factory=set)   # pages that reference it
 
     @property
     def ok(self) -> bool:
-        return self.error is None and self.status is not None and self.status < 400
+        return self.error is None and self.status is not None and self.status < 400 and not self.soft404
 
     @property
     def is_html(self) -> bool:
