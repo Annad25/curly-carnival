@@ -95,7 +95,7 @@ class Fetcher:
                         res.final_url = str(resp.url)
                         res.headers = {k.lower(): v for k, v in resp.headers.items()}
                         res.content_type = res.headers.get("content-type", "").lower()
-                        textual = any(t in res.content_type for t in ("html", "xml", "text"))
+                        textual = any(t in res.content_type for t in ("html", "xml", "text", "javascript", "ecmascript", "json"))
                         if method == "GET" and keep_body and textual:
                             buf = bytearray()
                             size = 0

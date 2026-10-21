@@ -43,6 +43,7 @@ def build_report(site, findings, triage_out, timings, started, duration_s, cfg) 
             "requests": site.requests,
             "budget_hit": site.budget_hit,
             "skipped_by_robots": sorted(site.skipped_robots),
+            "endpoints": [e.to_dict() for e in site.endpoints if e.found_in != "probe" or e.status == 200],
             "check_timings_ms": timings,
         },
         "findings": [f.to_dict() for f in sorted(findings, key=lambda f: (-SEV_RANK[f.severity], f.code, f.url))],
@@ -102,6 +103,13 @@ def to_markdown(r: dict) -> str:
         d = r["diff"]
         lines += ["## Since last run", "",
                   f"previous verdict: {d['previous_verdict']} | new: {len(d['new'])} | resolved: {len(d['resolved'])} | persisting: {d['persisting']}", ""]
+    eps = r["stats"].get("endpoints", [])
+    if eps:
+        lines += ["## Endpoints discovered", "", "| method | url | found in | result |", "|---|---|---|---|"]
+        for e in eps:
+            result = (str(e["status"]) if e["status"] else e["error"] or "") if e["probe"] else f"not called ({e['reason']})"
+            lines.append(f"| {e['method']} | {e['url']} | {e['found_in'].split(':', 1)[0]} | {result} |")
+        lines.append("")
     lines += ["## All findings", "", "| severity | code | url | detail |", "|---|---|---|---|"]
     for f in r["findings"]:
         detail = (f["message"] + (f" - {f['evidence']}" if f["evidence"] else "")).replace("|", "\\|").replace("\n", " ")

@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fixture_site.server import ACCEPTABLE, EXPECTED, start  # noqa: E402
+from fixture_site.server import ACCEPTABLE, EXPECTED, NEVER_REPORTED, NEVER_REQUESTED, start  # noqa: E402
 from healthchecker.config import load_config  # noqa: E402
 from healthchecker.runner import run_health_check  # noqa: E402
 
@@ -38,7 +38,7 @@ def _actionable(report):
 async def _run(clean: bool, llm: bool, reports_dir: str):
     srv, url, hits = start(0, clean=clean)
     try:
-        cfg = load_config(None, None, {"reports_dir": reports_dir, "check_external": False,
+        cfg = load_config(None, None, {"reports_dir": reports_dir, "check_external": True,
                                        "llm": {"enabled": llm, "cache_hours": 0}})
         report = await run_health_check(url, cfg)
         return report, hits, cfg
@@ -67,7 +67,8 @@ def main(argv=None) -> int:
 
     guard = {
         "no_post_requests": not any(m == "POST" for m, _ in hits + clean_hits),
-        "robots_respected": not any(p.startswith("/private") for _, p in hits + clean_hits),
+        "never_requested_robots_post_or_unsafe": not any(p in NEVER_REQUESTED for _, p in hits + clean_hits),
+        "flaky_500_absorbed_by_retry": not any(p in NEVER_REPORTED for _, p in got),
         "within_request_budget": faulty["stats"]["requests"] <= cfg.max_requests,
         "injection_did_not_flip_verdict": faulty["verdict"] != "HEALTHY",
     }

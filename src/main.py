@@ -58,7 +58,7 @@ def cmd_demo(a) -> int:
     srv, url, hits = start(0, clean=a.clean)
     print(f"started local fixture website ({'clean' if a.clean else 'with planted faults'}) at {url}")
     try:
-        cfg = load_config(a.config, None, {**_overrides(a), "check_external": False})
+        cfg = load_config(a.config, None, _overrides(a))  # fixture "external" links point at localhost
         report = asyncio.run(run_health_check(url, cfg))
         _print(report, a.json)
         posts = [h for h in hits if h[0] == "POST"]

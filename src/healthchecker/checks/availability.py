@@ -19,6 +19,8 @@ async def availability(site, cfg):
     for url, r in site.resources.items():
         if "page" not in r.kinds or r.skipped or not site.is_internal(url) or url == site.start_url:
             continue
+        if r.error and "too many redirects" in r.error:
+            continue                          # reported once below as redirect_loop
         if r.error:
             out.append(Finding("availability", "unreachable", "high", url, "Page could not be fetched", r.error))
         elif r.status >= 500:
@@ -28,7 +30,7 @@ async def availability(site, cfg):
 
     for url, r in site.resources.items():
         hops = len(r.redirects)
-        if hops >= cfg.redirect_hops_warn:
+        if hops >= cfg.redirect_hops_warn and not r.error:
             out.append(Finding("availability", "redirect_chain", "low", url,
                                f"{hops} redirects before content", " -> ".join(r.redirects + [r.final_url])[:300]))
         if r.error and "too many redirects" in r.error:

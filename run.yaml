@@ -6,7 +6,7 @@ setup_commands:
 
 run_commands:
   - "python src/main.py --help"
-  # 1) localhost: bundled website with 14 planted faults (no network needed, ~3s)
+  # 1) localhost: bundled website with 21 planted faults (no network needed, ~3s)
   - "python src/main.py demo --exit-zero"
   # 2) the real target (needs internet, ~15s)
   - "python src/main.py check --url https://aintropy.ai/ --exit-zero"

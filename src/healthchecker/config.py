@@ -29,6 +29,7 @@ class Config:
     respect_robots: bool = True
     check_external: bool = True
     max_external: int = 60
+    max_bundles: int = 10          # JS bundles scanned for API endpoints
     ignore_patterns: list = field(default_factory=lambda: ["/cdn-cgi/"])
 
     # thresholds

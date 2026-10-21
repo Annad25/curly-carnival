@@ -1,27 +1,46 @@
 # Health report: https://aintropy.ai/
 
-**Verdict: DEGRADED** | score 86/100 | 34.33s | 17 pages, 110 URLs, 119 requests | triage: claude ($0.0038)
+**Verdict: DEGRADED** | score 85/100 | 27.11s | 17 pages, 110 URLs, 126 requests | triage: claude ($0.0084)
 
-Counts: medium=2, low=6, info=3
+Counts: medium=2, low=7, info=3
 
 ## Summary
 
-Four security headers are missing site-wide (HSTS, CSP, frame protection), which points to the web server or CDN config and is the top fix. The remaining findings are low severity: missing alt text on 13 images in one UNIK research post, and missing h1 and meta descriptions on a few solutions and blog pages, which look like template or content-pipeline gaps. No finding was excluded as a false positive.
+The site is missing several standard security headers (HSTS, CSP, frame protection) on the homepage, which is the highest-priority fix and likely a server or CDN config gap. Separately, a few low-severity accessibility and SEO gaps appear on specific pages: missing h1 headings, missing meta descriptions, and images without alt text. The missing security.txt is a low-effort add.
 
 ## Root causes (fix in this order)
 
-1. **Security headers not set on the site** - Add the three headers at the edge (CDN or reverse proxy) for all responses: Strict-Transport-Security with max-age of at least 15552000, a CSP starting with default-src 'self' (test in Report-Only first), and frame-ancestors 'none' with X-Frame-Options DENY.  
-   _The origin server, reverse proxy, or CDN does not add Strict-Transport-Security, Content-Security-Policy, or X-Frame-Options/frame-ancestors to responses, so none of these headers are sent on the homepage._ (https://aintropy.ai/, https://aintropy.ai/, https://aintropy.ai/)
-2. **Images without alt text in the UNIK research post** - Add alt text to the 13 images in the post, or have the import step fill alt from captions or figure titles, and add a check to the pipeline so new imports fail without alt.  
-   _The content import pipeline (content-pulled/research_papers) copies images from the source papers without carrying over or generating alt attributes._ (https://aintropy.ai/research/unik-universal-knowledge-perception/)
-3. **Missing h1 on solutions and blog pages** - Confirm the rendered DOM on each page, then make the page title an h1 in the template, keeping one h1 per page.  
-   _These pages probably use a layout or template where the title is rendered as a non-h1 element, such as a div, a logo image, or text injected by JavaScript._ (https://aintropy.ai/solutions/nj_demo, https://aintropy.ai/vision/unik-results-blog-2/)
-4. **Missing meta descriptions on solutions pages** - Add a description field to the solutions template and fill it for seattle_legal and nj_opendata, then check the other solutions pages for the same gap.  
-   _The solutions page template does not output a meta description, or the per-page field is empty in the CMS._ (https://aintropy.ai/solutions/seattle_legal/, https://aintropy.ai/solutions/nj_opendata/)
+1. **Security headers not set on homepage response** - Add the three headers at the edge or server layer (for example, in the CDN response-header policy or the web server config): Strict-Transport-Security with max-age of at least one year, a Content-Security-Policy that starts with default-src 'self', and frame-ancestors 'none' (plus X-Frame-Options: DENY for older browsers). Verify with curl -I after deploy.  
+   _The web server, CDN, or hosting layer does not emit Strict-Transport-Security, Content-Security-Policy, or X-Frame-Options/frame-ancestors, so none of the responses carry these protections._ (https://aintropy.ai/, https://aintropy.ai/, https://aintropy.ai/)
+2. **Missing h1 on solution and vision pages** - Make sure each of these pages has exactly one h1 that holds the page title, either by changing the template or by adding the heading to the page content.  
+   _These page templates or their content blocks render the title as a non-h1 element (or omit it), which often happens when a theme or generated content replaces the main heading._ (https://aintropy.ai/solutions/nj_demo, https://aintropy.ai/vision/unik-results-blog-2/)
+3. **Missing meta descriptions on solution pages** - Add a unique 120 to 160 character meta description to each page, or set a template default that is populated from the page summary.  
+   _The SEO meta description field is empty for these pages, probably because the CMS or template does not fill it in for solutions content._ (https://aintropy.ai/solutions/seattle_legal/, https://aintropy.ai/solutions/nj_opendata/)
+4. **Images without alt text in the UNIK research post** - Add descriptive alt text to each image in the post. Use alt="" only for purely decorative images. Those images are under /content-pulled/research_papers/, so fix them at the source so the import stops producing them.  
+   _The 13 images were pulled into the content from a source that did not carry alt text, so the converted HTML has no alt attributes._ (https://aintropy.ai/research/unik-universal-knowledge-perception/)
+5. **No security.txt published** - Create /.well-known/security.txt with a Contact line (email or URL), an Expires date within a year, and optionally Policy and Canonical lines. Serve it as plain text.  
+   _The site has no /.well-known/security.txt file._ (https://aintropy.ai/.well-known/security.txt)
 
 ## Since last run
 
-previous verdict: None | new: 11 | resolved: 0 | persisting: 0
+previous verdict: None | new: 12 | resolved: 0 | persisting: 0
+
+## Endpoints discovered
+
+| method | url | found in | result |
+|---|---|---|---|
+| POST | https://aintropy.ai/solutions/seattle_legal/api/search | js | not called (POST - inventoried only, never called) |
+| POST | https://aintropy.ai/solutions/seattle_legal/api/feedback | js | not called (POST - inventoried only, never called) |
+| POST | https://aintropy.ai/solutions/seattle_legal/api/compare | js | not called (POST - inventoried only, never called) |
+| GET | https://aintropy.ai/solutions/seattle_legal/api/seed-questions | js | 200 |
+| GET | https://aintropy.ai/solutions/seattle_legal/api/gate/status | js | 200 |
+| POST | https://aintropy.ai/solutions/seattle_legal/api/signup | js | not called (POST - inventoried only, never called) |
+| GET | https://aintropy.ai/solutions/nj_opendata/api/seed-questions | js | 200 |
+| POST | https://aintropy.ai/solutions/nj_opendata/api/search | js | not called (POST - inventoried only, never called) |
+| GET | https://aintropy.ai/solutions/nj_opendata/api/gate/status | js | 200 |
+| POST | https://aintropy.ai/solutions/nj_opendata/api/signup | js | not called (POST - inventoried only, never called) |
+| POST | https://aintropy.ai/solutions/nj_opendata/api/compare | js | not called (POST - inventoried only, never called) |
+| POST | https://aintropy.ai/solutions/nj_opendata/api/feedback | js | not called (POST - inventoried only, never called) |
 
 ## All findings
 
@@ -35,6 +54,7 @@ previous verdict: None | new: 11 | resolved: 0 | persisting: 0
 | low | missing_h1 | https://aintropy.ai/vision/unik-results-blog-2/ | Page has no <h1> |
 | low | missing_meta_description | https://aintropy.ai/solutions/nj_opendata/ | No meta description |
 | low | missing_meta_description | https://aintropy.ai/solutions/seattle_legal/ | No meta description |
+| low | missing_security_txt | https://aintropy.ai/.well-known/security.txt | No security.txt - researchers have no way to report vulnerabilities (RFC 9116) |
 | info | client_rendered | https://aintropy.ai/solutions/nj_opendata/ | Content is rendered by JavaScript - static crawl sees an empty shell (its JS bundles are still checked by the links checker) |
 | info | client_rendered | https://aintropy.ai/solutions/seattle_legal/ | Content is rendered by JavaScript - static crawl sees an empty shell (its JS bundles are still checked by the links checker) |
 | info | long_title | https://aintropy.ai/research/unik-universal-knowledge-perception/ | Title is 75 chars |

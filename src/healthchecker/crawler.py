@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
+from .endpoints import HEALTH_PROBES, Endpoint, extract_from_js, plan
 from .fetcher import Fetcher
 from .htmlparse import normalize, parse_page
 from .models import Page, Resource
@@ -33,6 +34,8 @@ class Site:
     sitemap_urls: list = field(default_factory=list)
     skipped_robots: set = field(default_factory=set)
     skipped_budget: set = field(default_factory=set)
+    endpoints: list = field(default_factory=list)       # Endpoint objects (API calls, forms, probes)
+    security_txt_status: int | None = None
     budget_hit: bool = False
     requests: int = 0
 
@@ -132,6 +135,9 @@ async def crawl(start_url: str, cfg, fetcher: Fetcher) -> Site:
                     nxt.append((link, depth + 1))
         frontier = nxt
 
+    # --- 3.5 endpoint discovery: API calls in the site's own JS, GET forms, health probes
+    await discover_endpoints(site, cfg, fetcher, allowed)
+
     # --- 4. cheap checks for everything referenced but not fetched yet
     todo, external = [], 0
     for url, res in list(site.resources.items()):
@@ -154,6 +160,41 @@ async def crawl(start_url: str, cfg, fetcher: Fetcher) -> Site:
     site.budget_hit = fetcher.budget_hit
     site.requests = fetcher.requests
     return site
+
+
+async def discover_endpoints(site: Site, cfg, fetcher: Fetcher, allowed) -> None:
+    scripts = [u for u, r in site.resources.items()
+               if "script" in r.kinds and site.is_internal(u) and r.status is None and allowed(u)][: cfg.max_bundles]
+
+    async def get_bundle(url):
+        r = await fetcher.fetch(url)                       # full GET: we need the source to scan
+        r.kinds, r.sources = site.resources[url].kinds, site.resources[url].sources
+        site.resources[url] = r
+        return url, r
+
+    found: list[Endpoint] = []
+    for url, r in await asyncio.gather(*(get_bundle(u) for u in scripts)):
+        if r.ok and r.body:
+            page_url = sorted(r.sources)[0] if r.sources else site.start_url
+            found += extract_from_js(r.body.decode("utf-8", "replace"), url, page_url)
+    for p in site.pages:
+        for method, action in p.forms:
+            if site.is_internal(action) and normalize(action) not in (p.url, p.final_url):
+                found.append(Endpoint(action, method.upper(), f"form:{p.url}", False))
+    found += [Endpoint(site.origin + h, "GET", "probe", False) for h in HEALTH_PROBES]
+
+    site.endpoints = plan(found, site.host)
+    for e in site.endpoints:
+        if e.probe and not allowed(e.url):
+            e.probe, e.reason = False, "disallowed by robots.txt / ignore list"
+
+    async def probe(e: Endpoint):
+        r = await fetcher.fetch(e.url, "GET", keep_body=False)
+        e.status, e.error = r.status, r.error
+
+    await asyncio.gather(*(probe(e) for e in site.endpoints if e.probe))
+    st = await fetcher.fetch(site.origin + "/.well-known/security.txt", keep_body=False)
+    site.security_txt_status = st.status
 
 
 def page_of(site: Site, url: str) -> Page | None:

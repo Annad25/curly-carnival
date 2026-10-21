@@ -130,3 +130,39 @@ def test_end_to_end_fixture(tmp_path):
     assert not any(m == "POST" for m, _ in hits)
     assert not any(p.startswith("/private") for _, p in hits)
     assert (tmp_path / "127_0_0_1_" f"{srv.server_address[1]}" / "latest.md").exists()
+
+
+# ---------- endpoint discovery
+from healthchecker.endpoints import extract_from_js, plan  # noqa: E402
+
+
+def test_extracts_relative_axios_base_like_aintropy_spa():
+    # minified pattern seen in aintropy.ai/solutions/* bundles
+    js = ('sr=Se.create({baseURL:"api",timeout:12e4});async function a(){await sr.get("/gate/status")}'
+          'async function b(o){await sr.post("/search",{question:o})}')
+    eps = {(e.method, e.url) for e in extract_from_js(js, "b.js", "https://x.ai/solutions/nj/")}
+    assert ("GET", "https://x.ai/solutions/nj/api/gate/status") in eps
+    assert ("POST", "https://x.ai/solutions/nj/api/search") in eps
+
+
+def test_fetch_methods_and_query_strings():
+    js = 'fetch("/api/search?q="+q);fetch("/api/signup",{method:"POST",body:x});headers.get("content-type")'
+    eps = {(e.method, e.url) for e in extract_from_js(js, "b.js", "http://h/")}
+    assert eps == {("GET", "http://h/api/search"), ("POST", "http://h/api/signup")}
+
+
+def test_plan_only_probes_safe_same_host_gets():
+    js = ('fetch("/api/items");fetch("/api/logout");fetch("https://other.com/api/x");'
+          'fetch("/api/signup",{method:"POST"});var u="/api/mystery";')
+    planned = {e.url: e for e in plan(extract_from_js(js, "b.js", "http://h/"), "h")}
+    assert planned["http://h/api/items"].probe
+    assert not planned["http://h/api/logout"].probe            # looks state-changing
+    assert not planned["https://other.com/api/x"].probe        # third party
+    assert not planned["http://h/api/signup"].probe            # POST: inventoried only
+    assert not planned["http://h/api/mystery"].probe           # unknown method
+
+
+def test_ignores_header_lookups_in_http_library_code():
+    js = 'X.create({baseURL:"api"});h.get("set-cookie");h.delete("content-type");c.get("/gate/status")'
+    eps = {e.url for e in extract_from_js(js, "b.js", "https://x.ai/app/")}
+    assert eps == {"https://x.ai/app/api/gate/status"}
