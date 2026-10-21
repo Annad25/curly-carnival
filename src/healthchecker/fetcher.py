@@ -78,19 +78,22 @@ class Fetcher:
     async def _fetch_once(self, url: str, method: str, keep_body: bool) -> Resource:
         res = Resource(url=url)
         current = url
-        t0 = time.perf_counter()
+        net_ms = 0.0        # time on the wire only - queueing behind our own semaphore is not the server's fault
+        hop_t0 = time.perf_counter()
         try:
             for _ in range(MAX_REDIRECTS):
                 self._check_budget()
                 self.requests += 1
                 async with self.sem:
+                    hop_t0 = time.perf_counter()
                     async with self.client.stream(method, current) as resp:
                         self.log.append((method, current, resp.status_code))
                         if resp.is_redirect and "location" in resp.headers:
                             res.redirects.append(current)
                             current = urljoin(current, resp.headers["location"])
+                            net_ms += (time.perf_counter() - hop_t0) * 1000
                             continue
-                        res.ttfb_ms = (time.perf_counter() - t0) * 1000
+                        res.ttfb_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
                         res.status = resp.status_code
                         res.final_url = str(resp.url)
                         res.headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -108,7 +111,7 @@ class Fetcher:
                             res.body, res.size = bytes(buf), size
                         else:
                             res.size = int(res.headers.get("content-length", 0) or 0)
-                        res.total_ms = (time.perf_counter() - t0) * 1000
+                        res.total_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
                         return res
             res.error = f"too many redirects (>{MAX_REDIRECTS})"
         except BudgetExceeded:
@@ -117,5 +120,5 @@ class Fetcher:
             res.error = f"{type(e).__name__}: {e}"[:300]
             self.log.append((method, current, None))
         res.final_url = res.final_url or current
-        res.total_ms = (time.perf_counter() - t0) * 1000
+        res.total_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
         return res

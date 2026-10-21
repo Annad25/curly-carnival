@@ -39,7 +39,8 @@ def build_report(site, findings, triage_out, timings, started, duration_s, cfg) 
         "counts": {s: counts.get(s, 0) for s in reversed(SEVERITIES)},
         "stats": {
             "pages_crawled": len(site.pages),
-            "urls_checked": sum(1 for r in site.resources.values() if r.status is not None or r.error),
+            "urls_checked": sum(1 for r in site.resources.values() if (r.status is not None or r.error) and not r.skipped),
+            "urls_skipped_budget": sum(1 for r in site.resources.values() if r.skipped),
             "requests": site.requests,
             "budget_hit": site.budget_hit,
             "skipped_by_robots": sorted(site.skipped_robots),

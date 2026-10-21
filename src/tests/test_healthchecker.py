@@ -166,3 +166,26 @@ def test_ignores_header_lookups_in_http_library_code():
     js = 'X.create({baseURL:"api"});h.get("set-cookie");h.delete("content-type");c.get("/gate/status")'
     eps = {e.url for e in extract_from_js(js, "b.js", "https://x.ai/app/")}
     assert eps == {"https://x.ai/app/api/gate/status"}
+
+
+# ---------- regression: queueing behind our own concurrency limit is not server slowness
+def test_ttfb_excludes_time_waiting_for_a_free_slot():
+    from healthchecker.fetcher import Fetcher
+
+    srv, url, _ = start(0)
+    try:
+        cfg = load_config(None, None, {"concurrency": 1})
+
+        async def go():
+            f = Fetcher(cfg)
+            try:
+                slow, fast = await asyncio.gather(f.fetch(url + "reports"), f.fetch(url + "docs"))
+            finally:
+                await f.close()
+            return slow, fast
+
+        slow, fast = asyncio.run(go())
+    finally:
+        srv.shutdown()
+    assert slow.ttfb_ms > 1500          # the planted 2s page is really slow
+    assert fast.ttfb_ms < 1000          # /docs waited ~2s in our queue but the server answered instantly

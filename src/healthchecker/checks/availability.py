@@ -35,4 +35,9 @@ async def availability(site, cfg):
                                f"{hops} redirects before content", " -> ".join(r.redirects + [r.final_url])[:300]))
         if r.error and "too many redirects" in r.error:
             out.append(Finding("availability", "redirect_loop", "medium", url, "Redirect loop", r.error))
+    if site.budget_hit:
+        skipped = sum(1 for r in site.resources.values() if r.skipped)
+        out.append(Finding("availability", "coverage_incomplete", "info", site.start_url,
+                           f"Request budget ({cfg.max_requests}) reached - {skipped} URLs not checked",
+                           "raise max_requests / max_pages for full coverage"))
     return out
