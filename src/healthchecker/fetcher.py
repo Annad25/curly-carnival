@@ -38,12 +38,16 @@ class Fetcher:
         self.requests = 0
         self.budget_hit = False
         self.deadline = time.monotonic() + cfg.time_budget_s
+        self.reserve = 0                # small extra allowance for confirmation re-tests after the budget
         self.log: list[tuple[str, str, int | None]] = []
 
     async def close(self):
         await self.client.aclose()
 
     def _check_budget(self):
+        if self.reserve > 0:
+            self.reserve -= 1
+            return
         if self.requests >= self.cfg.max_requests or time.monotonic() > self.deadline:
             self.budget_hit = True
             raise BudgetExceeded()
@@ -53,11 +57,14 @@ class Fetcher:
             raise ValueError(f"guardrail: method {method} not allowed (read-only checker)")
         attempt = 0
         while True:
-            try:
-                # hard wall-clock cap per request: a slow-drip server can't stall the run
-                res = await asyncio.wait_for(self._fetch_once(url, method, keep_body), self.cfg.timeout_s * 2)
-            except asyncio.TimeoutError:
-                res = Resource(url=url, final_url=url, error=f"timeout after {self.cfg.timeout_s * 2:.0f}s")
+            # Take a concurrency slot FIRST, then start the clock: the hard cap (so a slow-drip
+            # server can't stall the run) must only cover network time, never time spent queued.
+            async with self.sem:
+                try:
+                    res = await asyncio.wait_for(self._fetch_once(url, method, keep_body), self.cfg.timeout_s * 2)
+                except asyncio.TimeoutError:
+                    res = Resource(url=url, final_url=url, error=f"timeout after {self.cfg.timeout_s * 2:.0f}s")
+                    self.log.append((method, url, None))
             transient = res.error and not res.skipped or (res.status or 0) >= 500
             if transient and attempt < retries:
                 attempt += 1
@@ -78,41 +85,40 @@ class Fetcher:
     async def _fetch_once(self, url: str, method: str, keep_body: bool) -> Resource:
         res = Resource(url=url)
         current = url
-        net_ms = 0.0        # time on the wire only - queueing behind our own semaphore is not the server's fault
+        net_ms = 0.0        # time on the wire only (caller already holds a concurrency slot)
         hop_t0 = time.perf_counter()
         try:
             for _ in range(MAX_REDIRECTS):
                 self._check_budget()
                 self.requests += 1
-                async with self.sem:
-                    hop_t0 = time.perf_counter()
-                    async with self.client.stream(method, current) as resp:
-                        self.log.append((method, current, resp.status_code))
-                        if resp.is_redirect and "location" in resp.headers:
-                            res.redirects.append(current)
-                            current = urljoin(current, resp.headers["location"])
-                            net_ms += (time.perf_counter() - hop_t0) * 1000
-                            continue
-                        res.ttfb_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
-                        res.status = resp.status_code
-                        res.final_url = str(resp.url)
-                        res.headers = {k.lower(): v for k, v in resp.headers.items()}
-                        res.content_type = res.headers.get("content-type", "").lower()
-                        textual = any(t in res.content_type for t in ("html", "xml", "text", "javascript", "ecmascript", "json"))
-                        if method == "GET" and keep_body and textual:
-                            buf = bytearray()
-                            size = 0
-                            async for chunk in resp.aiter_bytes():
-                                size += len(chunk)
-                                if len(buf) < BODY_CAP:
-                                    buf.extend(chunk[: BODY_CAP - len(buf)])
-                                if size > READ_CAP:
-                                    break
-                            res.body, res.size = bytes(buf), size
-                        else:
-                            res.size = int(res.headers.get("content-length", 0) or 0)
-                        res.total_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
-                        return res
+                hop_t0 = time.perf_counter()
+                async with self.client.stream(method, current) as resp:
+                    self.log.append((method, current, resp.status_code))
+                    if resp.is_redirect and "location" in resp.headers:
+                        res.redirects.append(current)
+                        current = urljoin(current, resp.headers["location"])
+                        net_ms += (time.perf_counter() - hop_t0) * 1000
+                        continue
+                    res.ttfb_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
+                    res.status = resp.status_code
+                    res.final_url = str(resp.url)
+                    res.headers = {k.lower(): v for k, v in resp.headers.items()}
+                    res.content_type = res.headers.get("content-type", "").lower()
+                    textual = any(t in res.content_type for t in ("html", "xml", "text", "javascript", "ecmascript", "json"))
+                    if method == "GET" and keep_body and textual:
+                        buf = bytearray()
+                        size = 0
+                        async for chunk in resp.aiter_bytes():
+                            size += len(chunk)
+                            if len(buf) < BODY_CAP:
+                                buf.extend(chunk[: BODY_CAP - len(buf)])
+                            if size > READ_CAP:
+                                break
+                        res.body, res.size = bytes(buf), size
+                    else:
+                        res.size = int(res.headers.get("content-length", 0) or 0)
+                    res.total_ms = net_ms + (time.perf_counter() - hop_t0) * 1000
+                    return res
             res.error = f"too many redirects (>{MAX_REDIRECTS})"
         except BudgetExceeded:
             res.error, res.skipped = "skipped: crawl budget exhausted", True

@@ -158,6 +158,11 @@ async def crawl(start_url: str, cfg, fetcher: Fetcher) -> Site:
 
     await asyncio.gather(*(head(u) for u in todo))
     site.budget_hit = fetcher.budget_hit
+
+    # --- 5. confirm slowness before reporting it: re-time slow pages one at a time.
+    # During the crawl 8 big downloads compete for the same bandwidth/server, which inflates
+    # TTFB; a lone re-test shows what a real visitor gets. Keep the faster measurement.
+    await confirm_slow(site, cfg, fetcher)
     site.requests = fetcher.requests
     return site
 
@@ -195,6 +200,17 @@ async def discover_endpoints(site: Site, cfg, fetcher: Fetcher, allowed) -> None
     await asyncio.gather(*(probe(e) for e in site.endpoints if e.probe))
     st = await fetcher.fetch(site.origin + "/.well-known/security.txt", keep_body=False)
     site.security_txt_status = st.status
+
+
+async def confirm_slow(site: Site, cfg, fetcher: Fetcher, limit: int = 20) -> None:
+    slow = sorted((r for r in site.resources.values() if "page" in r.kinds and r.ok and r.ttfb_ms > cfg.slow_ms),
+                  key=lambda r: -r.ttfb_ms)[:limit]
+    fetcher.reserve = len(slow) * 3          # allowed even if the crawl budget is used up (+redirect hops)
+    for r in slow:                           # sequential on purpose: no contention with ourselves
+        again = await fetcher.fetch(r.url, "GET", keep_body=False, retries=0)
+        if again.ok and again.ttfb_ms:
+            r.ttfb_ms = min(r.ttfb_ms, again.ttfb_ms)
+    fetcher.reserve = 0
 
 
 def page_of(site: Site, url: str) -> Page | None:

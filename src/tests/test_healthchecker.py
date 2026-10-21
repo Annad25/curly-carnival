@@ -189,3 +189,36 @@ def test_ttfb_excludes_time_waiting_for_a_free_slot():
         srv.shutdown()
     assert slow.ttfb_ms > 1500          # the planted 2s page is really slow
     assert fast.ttfb_ms < 1000          # /docs waited ~2s in our queue but the server answered instantly
+
+
+def test_requests_waiting_in_queue_do_not_time_out():
+    """Regression (synechron.com): the per-request hard cap used to include queue time, so on a
+    big slow site queued requests 'timed out' without ever being sent and burned the budget."""
+    from healthchecker.fetcher import Fetcher
+
+    srv, url, _ = start(0)
+    try:
+        cfg = load_config(None, None, {"concurrency": 1, "timeout_s": 1.5})   # hard cap = 3s
+
+        async def go():
+            f = Fetcher(cfg)
+            try:
+                # two 2s pages hold the only slot for ~4s; /docs queues longer than the 3s cap
+                res = await asyncio.gather(f.fetch(url + "reports"), f.fetch(url + "reports"),
+                                           f.fetch(url + "docs"))
+            finally:
+                await f.close()
+            return res, f
+
+        (slow1, slow2, fast), f = asyncio.run(go())
+    finally:
+        srv.shutdown()
+    assert fast.ok and fast.error is None, fast.error
+    assert f.requests == len(f.log)               # every counted request was really sent (no phantom timeouts)
+
+
+def test_score_repeats_have_diminishing_weight():
+    from healthchecker.report import score_of
+    one_cause = [F("sitemap_broken_url", "medium", f"http://x/{i}") for i in range(33)]
+    assert score_of(one_cause) > 60                       # one stale sitemap is not a dead site
+    assert score_of([F("a", "medium"), F("b", "medium")]) <= score_of([F("a", "medium")] * 2)

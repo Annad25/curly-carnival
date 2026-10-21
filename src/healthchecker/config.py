@@ -30,7 +30,9 @@ class Config:
     check_external: bool = True
     max_external: int = 60
     max_bundles: int = 10          # JS bundles scanned for API endpoints
-    ignore_patterns: list = field(default_factory=lambda: ["/cdn-cgi/"])
+    # CDN / WAF bot-challenge endpoints (Cloudflare, Imperva/Incapsula, Akamai) answer non-browsers
+    # with 4xx on purpose - checking them only produces false "broken asset" alarms.
+    ignore_patterns: list = field(default_factory=lambda: ["/cdn-cgi/", "/_Incapsula_Resource", "/akam/"])
 
     # thresholds
     slow_ms: int = 1500

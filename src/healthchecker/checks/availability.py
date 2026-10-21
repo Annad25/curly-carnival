@@ -30,7 +30,7 @@ async def availability(site, cfg):
 
     for url, r in site.resources.items():
         hops = len(r.redirects)
-        if hops >= cfg.redirect_hops_warn and not r.error:
+        if hops >= cfg.redirect_hops_warn and not r.error and site.is_internal(url):   # third-party chains aren't ours to fix
             out.append(Finding("availability", "redirect_chain", "low", url,
                                f"{hops} redirects before content", " -> ".join(r.redirects + [r.final_url])[:300]))
         if r.error and "too many redirects" in r.error:

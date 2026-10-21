@@ -24,7 +24,7 @@ from healthchecker.runner import run_health_check  # noqa: E402
 
 
 def _overrides(a) -> dict:
-    o = {"max_pages": a.max_pages, "max_requests": a.max_requests, "reports_dir": a.reports_dir, "webhook_url": a.webhook,
+    o = {"max_pages": a.max_pages, "max_requests": a.max_requests, "time_budget_s": a.time_budget, "reports_dir": a.reports_dir, "webhook_url": a.webhook,
          "notify": a.notify, "plugins_dir": a.plugins, "check_external": False if a.no_external else None}
     if a.no_llm:
         o["llm"] = {"enabled": False}
@@ -84,6 +84,7 @@ def main(argv=None) -> int:
         p.add_argument("--config", default=None, help="YAML config (see sites.yaml)")
         p.add_argument("--max-pages", type=int, default=None)
         p.add_argument("--max-requests", type=int, default=None, help="hard cap on HTTP requests (default 400)")
+        p.add_argument("--time-budget", type=int, default=None, help="crawl wall-clock budget in seconds (default 90)")
         p.add_argument("--reports-dir", default=None)
         p.add_argument("--webhook", default=None, help="POST results here (or env HEALTH_WEBHOOK_URL)")
         p.add_argument("--notify", choices=["always", "on_change", "never"], default=None)

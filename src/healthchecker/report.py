@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -21,7 +22,11 @@ def verdict_of(findings) -> str:
 
 
 def score_of(findings) -> int:
-    return max(0, 100 - sum(WEIGHTS[f.severity] for f in findings))
+    """Repeats of the same problem count with diminishing weight: 33 stale sitemap URLs are one
+    root cause, not 33x the damage of a missing CSP header."""
+    groups = Counter((f.code, f.severity) for f in findings)
+    penalty = sum(WEIGHTS[sev] * (1 + math.log2(n)) for (_, sev), n in groups.items())
+    return max(0, round(100 - penalty))
 
 
 def slug(url: str) -> str:
