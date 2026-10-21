@@ -17,9 +17,10 @@ test_commands:
   - "python src/evals/run_eval.py"
 
 notes: >
+  Needs Python 3.10+.
   Reports are written to reports/<site>/latest.md and latest.json.
   `--exit-zero` is only there so the demo commands don't look like failures; without it
-  the exit code is 0 healthy / 1 degraded / 2 unhealthy, for CI. If CLAUDE_KEY is set and the
+  the exit code is 0 healthy / 1 degraded / 2 unhealthy or down / 3 unverifiable or error, for CI. If CLAUDE_KEY is set and the
   `claude` CLI is installed (npm i -g @anthropic-ai/claude-code), the triage step uses
   claude -p (haiku); `python src/evals/run_eval.py --llm` also evaluates that layer.
   Any site works as input: `python src/main.py check --url <site> --exit-zero` (scheme optional).
