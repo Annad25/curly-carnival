@@ -3,7 +3,8 @@
 A fast, cheap agent that tests whether a website is healthy: availability, links and assets, TLS/DNS, security headers, content errors, SEO, performance, and the API endpoints the site's JavaScript calls. It uses Claude (`claude -p`) only to reason over the findings: grouping them into root causes and suggesting fixes.
 
 **Write-up (design, evals, guardrails, results):** [docs/README.md](docs/README.md)  
-**How it was built, step by step:** [docs/how_i_built_it.md](docs/how_i_built_it.md)
+**How it was built, step by step:** [docs/how_i_built_it.md](docs/how_i_built_it.md)  
+**Architecture diagram:** [docs/architecture.drawio](docs/architecture.drawio)
 
 ## Quick start
 

@@ -6,6 +6,8 @@ The full story, with the bugs I hit on the way, is in [how_i_built_it.md](how_i_
 
 ## 1. How it works
 
+Diagram: [architecture.drawio](architecture.drawio) (open it at app.diagrams.net or in the draw.io app).
+
 ```
 input -> PROFILER -> CRAWLER -> 9 CHECKERS (parallel, no LLM) -> TRIAGE (claude -p) -> report -> hooks
          identity    sitemaps   availability, links, TLS/DNS     groups root causes      JSON/MD   webhook
