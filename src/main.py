@@ -39,6 +39,14 @@ def _print(report: dict, as_json: bool):
         print(f"\n  report: {report.get('report_path')}   hooks: {', '.join(report.get('hooks', []))}")
 
 
+def _exit(a, code: int) -> int:
+    """0 healthy, 1 degraded, 2 unhealthy/down, 3 unverifiable/error. With --fail-on unhealthy a
+    degraded site (missing headers etc.) is a warning, not a failed job."""
+    if a.exit_zero or (a.fail_on == "unhealthy" and code == 1):
+        return 0
+    return code
+
+
 def cmd_check(a) -> int:
     targets = [a.url] if a.url else [s["url"] for s in site_urls(a.config) if s.get("enabled", True)]
     if not targets:
@@ -55,7 +63,7 @@ def cmd_check(a) -> int:
             continue
         _print(report, a.json)
         worst = max(worst, EXIT_CODES[report["verdict"]])
-    return 0 if a.exit_zero else worst
+    return _exit(a, worst)
 
 
 def cmd_demo(a) -> int:
@@ -72,7 +80,7 @@ def cmd_demo(a) -> int:
               f"total requests={report['stats']['requests']}/{cfg.max_requests}")
     finally:
         srv.shutdown()
-    return 0 if a.exit_zero else EXIT_CODES[report["verdict"]]
+    return _exit(a, EXIT_CODES[report["verdict"]])
 
 
 def cmd_serve(a) -> int:
@@ -103,6 +111,8 @@ def main(argv=None) -> int:
         p.add_argument("--no-external", action="store_true", help="don't check off-site links")
         p.add_argument("--json", action="store_true", help="print full JSON report to stdout")
         p.add_argument("--exit-zero", action="store_true", help="always exit 0 (for demos)")
+        p.add_argument("--fail-on", choices=["degraded", "unhealthy"], default="degraded",
+                       help="lowest verdict that gives a non-zero exit (monitors usually want 'unhealthy')")
 
     c = sub.add_parser("check", help="check a website")
     c.add_argument("--url", default=None)

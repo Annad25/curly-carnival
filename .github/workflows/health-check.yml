@@ -1,6 +1,6 @@
 name: website-health
 on:
-  schedule: [{cron: "*/30 * * * *"}]   # every 30 min
+  schedule: [{cron: "0 */6 * * *"}]    # every 6 hours
   workflow_dispatch:
   deployment_status:                    # also right after every deploy
 jobs:
@@ -19,7 +19,8 @@ jobs:
           CLAUDE_KEY: ${{ secrets.CLAUDE_KEY }}
           HEALTH_WEBHOOK_URL: ${{ secrets.HEALTH_WEBHOOK_URL }}
           HEALTH_WEBHOOK_SECRET: ${{ secrets.HEALTH_WEBHOOK_SECRET }}
-        run: python src/main.py check --config sites.yaml
+        # degraded (e.g. a missing header) is reported but doesn't fail the job; unhealthy / down does
+        run: python src/main.py check --config sites.yaml --fail-on unhealthy
       - if: always()
         uses: actions/upload-artifact@v4
         with: {name: health-report, path: reports/**/latest.*}
